@@ -1,5 +1,8 @@
 #pragma once
 
+/* File path buffer length */
+#define buffer_length 1024
+
 /* A struct that represents a list of words. */
 struct tokens;
 

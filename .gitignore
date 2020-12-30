@@ -67,3 +67,6 @@ hw5/poolserver
 
 # HW5
 hw5/**/build
+
+# VSCode
+.vscode/

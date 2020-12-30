@@ -2,7 +2,7 @@ CC=gcc
 CFLAGS=-g -ggdb3 -Wall -std=gnu99
 LDFLAGS=-pthread
 EXECUTABLES=httpserver forkserver threadserver poolserver
-SOURCE=httpserver.c libhttp.c wq.c
+SOURCE=httpserver.c libhttp.c wq.c utils.c
 
 all: $(EXECUTABLES)
 

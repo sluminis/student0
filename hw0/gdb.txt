@@ -1,0 +1,66 @@
+GDB Practice:
+
+a.
+$4 = 0x7fffffffe74e "/home/vagrant/code/personal/hw0/wc"
+
+b.
+$6 = 0x7fffffffe771 "wc.c"
+
+c.
+file wc.c, line 5.
+
+d.
+
+    *
+
+e.
+
+    *
+
+f.
+
+g.
+
+    *
+
+h.
+
+i.
+
+j.
+
+k.
+
+l.
+
+    *
+
+m.
+
+n.
+
+o.
+
+p.
+
+q.
+
+r.
+
+s.
+
+t.
+
+u.
+
+v.
+
+    *
+
+w.
+
+x.
+
+y.
+
+z.

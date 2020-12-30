@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "tokenizer.h"
+#include "executor.h"
 
 /* Convenience macro to silence compiler warnings about unused function parameters. */
 #define unused __attribute__((unused))
@@ -30,6 +31,9 @@ pid_t shell_pgid;
 
 int cmd_exit(struct tokens *tokens);
 int cmd_help(struct tokens *tokens);
+int cmd_pwd(struct tokens *tokens);
+int cmd_cd(struct tokens *tokens);
+int cmd_kill(struct tokens *tokens);
 
 /* Built-in command functions take token array (see parse.h) and return int */
 typedef int cmd_fun_t(struct tokens *tokens);
@@ -42,8 +46,11 @@ typedef struct fun_desc {
 } fun_desc_t;
 
 fun_desc_t cmd_table[] = {
-  {cmd_help, "?", "show this help menu"},
-  {cmd_exit, "exit", "exit the command shell"},
+  {cmd_help,  "?",    "show this help menu"},
+  {cmd_exit,  "exit", "exit the command shell"},
+  {cmd_pwd,   "pwd",  "print current working directory path"},
+  {cmd_cd,    "cd",   "change current working directory"},
+  {cmd_kill,  "kill", "send a signal to designated process"},
 };
 
 /* Prints a helpful description for the given command */
@@ -56,6 +63,93 @@ int cmd_help(unused struct tokens *tokens) {
 /* Exits this shell */
 int cmd_exit(unused struct tokens *tokens) {
   exit(0);
+}
+
+/* Prints current working directory */
+int cmd_pwd(unused struct tokens *tokens) {
+  static char cwd[buffer_length];
+  getcwd(cwd, sizeof(cwd));
+  printf("%s\n", cwd);
+  return 0;
+}
+
+/* Change working directory */
+int cmd_cd(struct tokens *tokens) {
+  static char last_path[buffer_length] = ".";
+  size_t token_length = tokens_get_length(tokens);
+  char *fixed_path = NULL;
+  char *path = NULL;
+
+  if (token_length == 1)
+    path = getenv("HOME");
+  else {
+    path = tokens_get_token(tokens, 1);
+    if (path[0] == '~') {
+      char *home = getenv("HOME");
+      fixed_path = (char*) malloc(sizeof(char)*buffer_length);
+      fixed_path[0] = '\0';
+      strcat(fixed_path, home);
+      strcat(fixed_path, path + 1);
+      path = fixed_path;
+    }
+    else if (strcmp(path, "-") == 0) {
+      path = last_path;
+      printf("%s\n", path);
+    }
+  }
+  
+  char cwd[buffer_length];
+  getcwd(cwd, sizeof(cwd));
+  // printf("path: %s\n", path);
+  int result = chdir(path);
+  if (result < 0) {
+    printf("cd %s: No such file or directory\n", path);
+  } else {
+    strcpy(last_path, cwd);
+  }
+  if (fixed_path) {
+      free(fixed_path);
+  }
+  return result;
+}
+
+/* Built-in command struct and lookup table */
+typedef struct sig_desc {
+  char *signame;
+  int signum;
+} sig_desc_t;
+
+sig_desc_t sig_table[] = {
+  {"-INT", 2},
+  {"-TSTP", 20},
+  {"-QUIT", 3},
+  {"-KILL", 9},
+  {"-CONT", 18},
+  {"-TREM", 15},
+  {"-TTIN", 21},
+  {"-TTOU", 22}
+};
+
+int cmd_kill(struct tokens *tokens) {
+  int n = tokens_get_length(tokens);
+  if (n < 3) {
+    printf("too few arguments\n");
+    return -1;
+  }
+  char *signame = tokens_get_token(tokens, 1);
+  char *pidstr = tokens_get_token(tokens, 2);
+  int signum = -1;
+  for (int i = 0; i < sizeof(sig_table) / sizeof(sig_desc_t); ++i) {
+    if (strcmp(sig_table[i].signame, signame) == 0) {
+      signum = sig_table[i].signum;
+    }
+  }
+  if (signum < 0) {
+    printf("signal not support\n");
+    return -2;
+  }
+  int pid = atoi(pidstr);
+  return kill(pid, signum);
 }
 
 /* Looks up the built-in command, if it exists. */
@@ -93,7 +187,16 @@ void init_shell() {
 }
 
 int main(unused int argc, unused char *argv[]) {
+  axx = 1;
+  printf("axx: %d\n", axx++);
   init_shell();
+  printf("shell pid: %d\n", getpid());
+  signal (SIGINT, sighandler);
+  signal (SIGTSTP, sighandler);
+  signal (SIGQUIT, SIG_IGN);
+  signal (SIGTTIN, SIG_IGN);
+  signal (SIGTTOU, SIG_IGN);
+  signal (SIGCHLD, SIG_IGN);
 
   static char line[4096];
   int line_num = 0;
@@ -113,7 +216,10 @@ int main(unused int argc, unused char *argv[]) {
       cmd_table[fundex].fun(tokens);
     } else {
       /* REPLACE this to run commands as programs. */
-      fprintf(stdout, "This shell doesn't know how to run programs.\n");
+      int result = execute_cmd(tokens);
+      if (result != 0) {
+        printf("command execute fail, error code: %d\n", result);
+      }
     }
 
     if (shell_is_interactive)
