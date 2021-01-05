@@ -12,7 +12,9 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <sys/select.h>
 #include <unistd.h>
+#include <time.h>
 
 #include "libhttp.h"
 #include "wq.h"
@@ -84,7 +86,7 @@ void serve_file(int fd, char *path) {
     http_send_header(fd, "Content-Length", file_size);
     http_end_headers(fd);
 
-    copy_file_content(file_fd, fd);
+    copy_fd_data(file_fd, fd);
 
     /* PART 2 END */
 }
@@ -236,11 +238,11 @@ int get_file_type(char *path) {
  * proxy target (target_fd), and HTTP responses from the proxy target (target_fd)
  * should be sent to the client (fd).
  *
- *     +--------+     +------------+     +--------------+
- *     | client | <-> | httpserver | <-> | proxy target |
- *     +--------+     +------------+     +--------------+
+ *  +--------+     +------------+     +--------------+
+ *  | client | <-> | httpserver | <-> | proxy target |
+ *  +--------+     +------------+     +--------------+
  *
- *     Closes client socket (fd) and proxy target fd (target_fd) when finished.
+ *  Closes client socket (fd) and proxy target fd (target_fd) when finished.
  */
 void handle_proxy_request(int fd) {
 
@@ -293,6 +295,39 @@ void handle_proxy_request(int fd) {
 
     /* TODO: PART 4 */
     /* PART 4 BEGIN */
+
+    fd_set rfds;
+    struct timeval tv;
+    int retval;
+    ssize_t nread;
+    ssize_t nwrite;
+    char buffer[BUFFER_SIZE];
+
+    FD_ZERO(&rfds);
+
+    while (1) {
+        tv.tv_sec = 10;
+        tv.tv_usec = 0;
+        FD_SET(fd, &rfds);
+        FD_SET(target_fd, &rfds);
+        if ((retval = select(FD_SETSIZE, &rfds, NULL, NULL, &tv)) < 0) {
+            printf("something wrong!\n");
+            break;
+        }
+        if (FD_ISSET(fd, &rfds)) {
+            if ((nread = read(fd, buffer, BUFFER_SIZE)) <= 0) break;
+            if ((nwrite = write(target_fd, buffer, nread)) < nread) break;
+            printf("client -> target with %ld bytes\n", nwrite);
+        }
+        if (FD_ISSET(target_fd, &rfds)) {
+            if ((nread = read(target_fd, buffer, BUFFER_SIZE)) <= 0) break;
+            if ((nwrite = write(fd, buffer, nread)) < nread) break;
+            printf("target -> client with %ld bytes\n", nwrite);
+        }
+    }
+
+    printf("transfer end!\n");
+    close(target_fd);
 
     /* PART 4 END */
 

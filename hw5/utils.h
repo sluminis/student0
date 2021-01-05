@@ -1,8 +1,8 @@
 #ifndef __UTILS__
 #define __UTILS__
 
-#include <unistd.h>
+#define BUFFER_SIZE 4096
 
-void copy_file_content(int fd_from, int fd_to);
+int copy_fd_data(int fd_from, int fd_to);
 
 #endif
