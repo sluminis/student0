@@ -15,6 +15,9 @@
 #include <sys/select.h>
 #include <unistd.h>
 #include <time.h>
+#include <pthread.h>
+#include <sched.h>
+#include <semaphore.h>
 
 #include "libhttp.h"
 #include "wq.h"
@@ -29,9 +32,9 @@ int get_file_type(char *path);
  * handle_proxy_request. Their values are set up in main() using the
  * command line arguments (already implemented for you).
  */
-wq_t work_queue;    // Only used by poolserver
-int num_threads;    // Only used by poolserver
-int server_port;    // Default value: 8000
+wq_t work_queue;  // Only used by poolserver
+int num_threads;  // Only used by poolserver
+int server_port;  // Default value: 8000
 char *server_files_directory;
 char *server_proxy_hostname;
 int server_proxy_port;
@@ -328,9 +331,8 @@ void handle_proxy_request(int fd) {
 
     printf("transfer end!\n");
     close(target_fd);
-
+    close(fd);
     /* PART 4 END */
-
 }
 
 #ifdef POOLSERVER
@@ -348,7 +350,13 @@ void *handle_clients(void *void_request_handler) {
 
     /* TODO: PART 7 */
     /* PART 7 BEGIN */
-
+    int fd;
+    while ((fd = wq_pop(&work_queue)) > 0) {
+        printf("thread %ld-= is running\n", pthread_self());
+        request_handler(fd);
+    }
+    
+    return NULL;
     /* PART 7 END */
 }
 
@@ -359,10 +367,29 @@ void init_thread_pool(int num_threads, void (*request_handler)(int)) {
 
     /* TODO: PART 7 */
     /* PART 7 BEGIN */
-
+    for (int i = 0; i < num_threads; ++i) {
+        pthread_t thread;
+        pthread_create(&thread, NULL, handle_clients, request_handler);
+    }
     /* PART 7 END */
 }
+#elif THREADSERVER
+
+typedef struct serve_task {
+    void (*request_handler)(int);
+    int fd;
+} serve_task_t;
+
+void *handle_worker(void *taskp) {
+    serve_task_t *serve_task = (serve_task_t*) taskp;
+    pthread_detach(pthread_self());
+
+    serve_task->request_handler(serve_task->fd);
+    free(serve_task);
+    return NULL;
+}
 #endif
+
 
 /*
  * Opens a TCP stream socket on all interfaces with port number PORTNO. Saves
@@ -370,7 +397,6 @@ void init_thread_pool(int num_threads, void (*request_handler)(int)) {
  * connection, calls request_handler with the accepted fd number.
  */
 void serve_forever(int *socket_number, void (*request_handler)(int)) {
-
     struct sockaddr_in server_address, client_address;
     size_t client_address_length = sizeof(client_address);
     int client_socket_number;
@@ -424,6 +450,7 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
      * The thread pool is initialized *before* the server
      * begins accepting client connections.
      */
+    wq_init(&work_queue);
     init_thread_pool(num_threads, request_handler);
 #endif
 
@@ -431,11 +458,12 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
         client_socket_number = accept(*socket_number,
                 (struct sockaddr *) &client_address,
                 (socklen_t *) &client_address_length);
+        // printf("client_socket_number %d\n", client_socket_number);
         if (client_socket_number < 0) {
-            perror("Error accepting socket");
+            // perror("Error accepting socket");
+            sched_yield();
             continue;
         }
-
         printf("Accepted connection from %s on port %d\n",
                 inet_ntoa(client_address.sin_addr),
                 client_address.sin_port);
@@ -464,7 +492,14 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
          */
 
         /* PART 5 BEGIN */
+        signal(SIGCHLD, SIG_IGN);
 
+        if (fork() == 0) {
+            request_handler(client_socket_number);
+            close(client_socket_number);
+            exit(EXIT_SUCCESS);
+        }
+        close(client_socket_number);
         /* PART 5 END */
 
 #elif THREADSERVER
@@ -479,7 +514,11 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
          */
 
         /* PART 6 BEGIN */
-
+        serve_task_t *serve_task = (serve_task_t*) malloc(sizeof(serve_task_t));
+        serve_task->request_handler = request_handler;
+        serve_task->fd = client_socket_number;
+        pthread_t thread;
+        pthread_create(&thread, NULL, handle_worker, serve_task);
         /* PART 6 END */
 #elif POOLSERVER
         /*
@@ -491,7 +530,8 @@ void serve_forever(int *socket_number, void (*request_handler)(int)) {
          */
 
         /* PART 7 BEGIN */
-
+        wq_push(&work_queue, client_socket_number);
+        printf("wq size: %d\n", work_queue.size);
         /* PART 7 END */
 #endif
     }
@@ -505,6 +545,7 @@ void signal_callback_handler(int signum) {
     printf("Caught signal %d: %s\n", signum, strsignal(signum));
     printf("Closing socket %d\n", server_fd);
     if (close(server_fd) < 0) perror("Failed to close server_fd (ignoring)\n");
+
     exit(0);
 }
 
